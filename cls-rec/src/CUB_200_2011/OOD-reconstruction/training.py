@@ -12,10 +12,8 @@ import torchvision.transforms as transforms
 from model import Discriminator, Encoder, Generator
 from sklearn.metrics import average_precision_score, roc_auc_score, roc_curve
 from torch.nn.parallel import DistributedDataParallel as DDP
-
 from torch.utils.data import Dataset
 from PIL import Image
-import os
 
 class CUBDataset(Dataset):
     def __init__(self, root, images_txt, split_txt, train=True, transform=None):
@@ -177,7 +175,7 @@ if __name__ == '__main__':
                 
                 D_optimizer.zero_grad()
                 D_loss = [F.softplus(-real_density).mean(), F.softplus(fake_density).mean(), 0.5 * (((gradient.norm(2, dim=1) - 0) ** 2)).mean()]
-                (D_loss[0] + D_loss[1] + 0.01 * D_loss[2]).backward()
+                (D_loss[0] + D_loss[1] + 0.1 * D_loss[2]).backward()
                 D_optimizer.step()
                 
                 loss[0] = D_loss[0].item()
@@ -197,15 +195,28 @@ if __name__ == '__main__':
                 if rank == 0:
                     print(i + 1, '/', iterations, '\tD:', loss[0], loss[1], loss[2], '\tG:', loss[3], loss[4], loss[5], end='\r')
 
-                if rank == 1 and ((i + 1) % 10000 == 0 or i == 0):
+                if rank == 0 and ((i + 1) % 10000 == 0 or i == 0):
                     D_model.eval()                    
                     E_model.eval()
+                    G_model.eval()
                     
                     AUROC, AUPR_IN, FPR95 = evaluate(encoder=E_model, discriminator=D_model, id_loader=testloader, ood_loader=oodloader)
                     print('AUROC:', AUROC, '\tAUPR_IN:', AUPR_IN, '\tFPR@95:', FPR95)
                     
                     if not os.path.exists('{}'.format(i + 1)):
                         os.makedirs('{}'.format(i + 1))
+
+                    with torch.inference_mode():
+                        image = [image.cpu().data.numpy(), G_model(E_model(image)[0]).cpu().data.numpy()]
+                        
+                    for h in range(batch_size):
+                        a = np.uint8((image[0][h] + 1) * 255 / 2)
+                        b = np.uint8((image[1][h] + 1) * 255 / 2)
+                        c = np.concatenate([a, b], axis=-1)
+                        c = np.transpose(c, [1, 2, 0])
+                        
+                        result = Image.fromarray(c)
+                        result.save('{}/{}.png'.format(i + 1, local_rank * batch_size + h))
                         
                     torch.save({
                             'D_model': D_model.state_dict(),
@@ -217,6 +228,7 @@ if __name__ == '__main__':
 
                     D_model.train()                    
                     E_model.train()
+                    G_model.train()
 
                 dist.barrier()
                 i += 1

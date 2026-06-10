@@ -124,7 +124,7 @@ if __name__ == '__main__':
                 
                 D_optimizer.zero_grad()
                 D_loss = [F.softplus(-real_density).mean(), F.softplus(fake_density).mean(), 0.5 * (((gradient.norm(2, dim=1) - 0) ** 2)).mean()]
-                (D_loss[0] + D_loss[1] + 0.01 * D_loss[2]).backward()
+                (D_loss[0] + D_loss[1] + 0.1 * D_loss[2]).backward()
                 D_optimizer.step()
                 
                 loss[0] = D_loss[0].item()

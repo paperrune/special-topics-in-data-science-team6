@@ -12,6 +12,7 @@ import torchvision.transforms as transforms
 from model import Discriminator, Encoder, Generator
 from sklearn.metrics import average_precision_score, roc_auc_score, roc_curve
 from torch.nn.parallel import DistributedDataParallel as DDP
+from PIL import Image
 
 def evaluate(encoder, discriminator, id_loader, ood_loader):
     id_scores  = []
@@ -78,7 +79,7 @@ if __name__ == '__main__':
     i           = 0
 
     '''
-    checkpoint = torch.load('20000/checkpoint.pt', map_location='cpu')
+    checkpoint = torch.load('10000/checkpoint.pt', map_location='cpu')
     D_model.load_state_dict(checkpoint['D_model'])
     E_model.load_state_dict(checkpoint['E_model'])
     G_model.load_state_dict(checkpoint['G_model'])
@@ -88,11 +89,11 @@ if __name__ == '__main__':
     '''
 
     transform   = transforms.Compose([transforms.ToTensor(), transforms.RandomCrop(32, padding=4), transforms.RandomHorizontalFlip(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-    trainset    = torchvision.datasets.CIFAR10(root='../data', train=True, download=True, transform=transform)
+    trainset    = torchvision.datasets.CIFAR100(root='../data', train=True, download=True, transform=transform)
     sampler     = torch.utils.data.distributed.DistributedSampler(trainset, num_replicas=world_size, rank=rank, shuffle=True)
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, drop_last=True, sampler=sampler, num_workers=2, pin_memory=True)
     transform   = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-    testset     = torchvision.datasets.CIFAR10(root='../data', train=False, download=True, transform=transform)
+    testset     = torchvision.datasets.CIFAR100(root='../data', train=False, download=True, transform=transform)
     testloader  = torch.utils.data.DataLoader(testset, batch_size=batch_size, num_workers=2, pin_memory=True)
     transform   = transforms.Compose([transforms.ToTensor(), transforms.CenterCrop(32), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]) 
     oodset      = torchvision.datasets.ImageFolder(root='../../ImageNet/data/validation', transform=transform)
@@ -133,8 +134,8 @@ if __name__ == '__main__':
 
                 if i % 5 == 0:
                     G_optimizer.zero_grad()
-                    G_loss = [F.softplus(-D(latent)).mean(), nn.CrossEntropyLoss()(G(latent), label), nn.CrossEntropyLoss()(infer, label)]
-                    (G_loss[0] + 10 * (G_loss[1] + G_loss[2])).backward()
+                    G_loss = [F.softplus(-D(latent)).mean(), nn.MSELoss()(G(latent), image), nn.CrossEntropyLoss()(infer, label)]
+                    (G_loss[0] + 100 * G_loss[1] + 10 * G_loss[2]).backward()
                     G_optimizer.step()
 
                     loss[3] = G_loss[0].item()
@@ -147,12 +148,25 @@ if __name__ == '__main__':
                 if rank == 0 and ((i + 1) % 10000 == 0 or i == 0):
                     D_model.eval()                    
                     E_model.eval()
+                    G_model.eval()
                     
                     AUROC, AUPR_IN, FPR95 = evaluate(encoder=E_model, discriminator=D_model, id_loader=testloader, ood_loader=oodloader)
                     print('AUROC:', AUROC, '\tAUPR_IN:', AUPR_IN, '\tFPR@95:', FPR95)
                     
                     if not os.path.exists('{}'.format(i + 1)):
                         os.makedirs('{}'.format(i + 1))
+
+                    with torch.inference_mode():
+                        image = [image.cpu().data.numpy(), G_model(E_model(image)[0]).cpu().data.numpy()]
+                        
+                    for h in range(batch_size):
+                        a = np.uint8((image[0][h] + 1) * 255 / 2)
+                        b = np.uint8((image[1][h] + 1) * 255 / 2)
+                        c = np.concatenate([a, b], axis=-1)
+                        c = np.transpose(c, [1, 2, 0])
+                        
+                        result = Image.fromarray(c)
+                        result.save('{}/{}.png'.format(i + 1, local_rank * batch_size + h))
                         
                     torch.save({
                             'D_model': D_model.state_dict(),
@@ -164,6 +178,7 @@ if __name__ == '__main__':
 
                     D_model.train()                    
                     E_model.train()
+                    G_model.train()
 
                 dist.barrier()
                 i += 1
