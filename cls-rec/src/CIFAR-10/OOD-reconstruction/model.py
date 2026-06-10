@@ -42,61 +42,6 @@ class Encoder(nn.Module):
         z_mean, z_var = self.fc1(x).chunk(2, dim=1)
         return (z_mean + F.softplus(z_var) * torch.randn_like(z_mean) if mean == False else z_mean).tanh(), self.fc2(x)
 
-class DisEncBlock(nn.Module):
-    def __init__(self, channels, embed_dim=512):
-        super(DisEncBlock, self).__init__()
-        
-        self.conv1 = nn.Conv2d(channels[0], channels[1], kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(channels[1], channels[2], kernel_size=3, padding=1)
-        self.conv3 = nn.Conv2d(channels[0], channels[2], kernel_size=1)
-
-        if embed_dim is not None:
-            self.fc1   = nn.Linear(embed_dim, channels[0])
-            self.fc2   = nn.Linear(embed_dim, channels[1])
-
-        self.dropout = nn.Dropout(0.1)
-        
-    def forward(self, x, t=None):
-        y = self.conv3(x)
-
-        if t is None:
-            x = self.conv1(F.leaky_relu(x, 0.2))
-            x = self.conv2(F.leaky_relu(x, 0.2))
-        else:
-            x = self.conv1(F.leaky_relu(x + self.fc1(t)[:, :, None, None], 0.2))
-            x = self.conv2(self.dropout(F.leaky_relu(x + self.fc2(t)[:, :, None, None], 0.2)))
-        
-        x = F.avg_pool2d(x, 2)
-        y = F.avg_pool2d(y, 2)
-        
-        return (x + y) / np.sqrt(2)
-
-class DisResBlock(nn.Module):
-    def __init__(self, channels, embed_dim=512):
-        super(DisResBlock, self).__init__()
-        
-        self.conv1 = nn.Conv2d(channels[0], channels[1], kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(channels[1], channels[2], kernel_size=3, padding=1)
-        self.conv3 = nn.Conv2d(channels[0], channels[2], kernel_size=1)
-
-        if embed_dim is not None:
-            self.fc1   = nn.Linear(embed_dim, channels[0])
-            self.fc2   = nn.Linear(embed_dim, channels[1])
-
-        self.dropout = nn.Dropout(0.1)
-        
-    def forward(self, x, t=None):
-        y = self.conv3(x)
-
-        if t is None:
-            x = self.conv1(F.leaky_relu(x, 0.2))
-            x = self.conv2(F.leaky_relu(x, 0.2))
-        else:
-            x = self.conv1(F.leaky_relu(x + self.fc1(t)[:, :, None, None], 0.2))
-            x = self.conv2(self.dropout(F.leaky_relu(x + self.fc2(t)[:, :, None, None], 0.2)))
-        
-        return (x + y) / np.sqrt(2)
-
 class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
@@ -118,7 +63,7 @@ class Discriminator(nn.Module):
         return x
 
 class DecBlock(nn.Module):
-    def __init__(self, channels, embed_dim=1024):
+    def __init__(self, channels):
         super(DecBlock, self).__init__()
 
         self.conv1 = nn.Conv2d(channels[0], channels[1], kernel_size=3, padding=1)
@@ -152,7 +97,7 @@ class Generator(nn.Module):
                 nn.Tanh()))
 
     def forward(self, x):
-        x = self.fc(x) # torch.cat([x, y], dim=1))
+        x = self.fc(x)
         x = x.view(x.size(0), 512, 4, 4)
 
         for i in range(len(self.forward1)):

@@ -59,7 +59,7 @@ class Discriminator(nn.Module):
         return x
 
 class DecBlock(nn.Module):
-    def __init__(self, channels, embed_dim=1024):
+    def __init__(self, channels):
         super(DecBlock, self).__init__()
         
         self.conv1 = nn.Conv2d(channels[0], channels[1], kernel_size=3, padding=1)
@@ -95,7 +95,7 @@ class Generator(nn.Module):
                 nn.Tanh()))
         
     def forward(self, x):
-        x = self.fc(x) # torch.cat([x, y], dim=1))
+        x = self.fc(x)
         x = x.view(x.size(0), 512, 7, 7)
         
         for i in range(len(self.forward1)):

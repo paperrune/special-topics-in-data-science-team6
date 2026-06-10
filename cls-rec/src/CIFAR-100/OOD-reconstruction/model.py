@@ -1,3 +1,5 @@
+import math
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -5,11 +7,13 @@ import torch.nn.functional as F
 from torchvision.models import resnet18, ResNet18_Weights
 
 class Encoder(nn.Module):
-    def __init__(self, out_dim_1=512, out_dim_2=196, hidden_dim=512, pretrained=True):
+    def __init__(self, out_dim_1=512, out_dim_2=100, hidden_dim=512, pretrained=True):
         super().__init__()
 
         weights  = ResNet18_Weights.DEFAULT if pretrained else None
         backbone = resnet18(weights=weights)
+        backbone.conv1   = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        backbone.maxpool = nn.Identity()
         
         self.stem = nn.Sequential(
             backbone.conv1,
@@ -61,13 +65,13 @@ class Discriminator(nn.Module):
 class DecBlock(nn.Module):
     def __init__(self, channels):
         super(DecBlock, self).__init__()
-        
+
         self.conv1 = nn.Conv2d(channels[0], channels[1], kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(channels[1], channels[2], kernel_size=3, padding=1)
         self.conv3 = nn.Conv2d(channels[0], channels[2], kernel_size=1)
         self.bn1   = nn.BatchNorm2d(channels[0])
         self.bn2   = nn.BatchNorm2d(channels[1])
-        
+
     def forward(self, x):
         y = self.conv3(F.interpolate(x, scale_factor=2, mode='nearest'))
         
@@ -80,25 +84,23 @@ class DecBlock(nn.Module):
 class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
-        
-        self.fc = nn.Linear(512, 512 * 7 * 7)
+
+        self.fc = nn.Linear(512, 512 * 4 * 4)
         self.forward1 = nn.ModuleList()
-        self.forward1.append(DecBlock([512, 512, 512]))
-        self.forward1.append(DecBlock([512, 512, 512]))
-        self.forward1.append(DecBlock([512, 256, 256]))
-        self.forward1.append(DecBlock([256, 128, 128]))
-        self.forward1.append(DecBlock([128,  64,  64]))
+        self.forward1.append(DecBlock([512, 512, 256]))
+        self.forward1.append(DecBlock([256, 256, 128]))
+        self.forward1.append(DecBlock([128, 128,  64]))
         self.forward1.append(nn.Sequential(
                 nn.BatchNorm2d(64),
                 nn.LeakyReLU(inplace=True),
                 nn.Conv2d(64, 3, kernel_size=3, padding=1),
                 nn.Tanh()))
-        
+
     def forward(self, x):
         x = self.fc(x)
-        x = x.view(x.size(0), 512, 7, 7)
-        
+        x = x.view(x.size(0), 512, 4, 4)
+
         for i in range(len(self.forward1)):
             x = self.forward1[i](x)
-            
+
         return x
