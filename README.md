@@ -35,9 +35,17 @@ torch
 torchvision
 numpy
 scikit-learn
+scipy
+Pillow
 ```
 
 CUDA is expected for the training scripts.
+
+Install dependencies with:
+
+```bash
+pip install -r requirements.txt
+```
 
 ## Data
 
